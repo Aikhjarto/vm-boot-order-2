@@ -1,0 +1,25 @@
+[Unit]
+Description=Start VMs in order and shut them down in parallel (vm-boot-order-2)
+After=network.target
+Requires=virtnetworkd.service virtnodedevd.service virtnwfilterd.service virtqemud.service virtsecretd.service virtstoraged.service
+After=virtinterfaced.service virtnetworkd.service virtnodedevd.service virtnwfilterd.service virtqemud.service virtsecretd.service virtstoraged.service
+Requires=virt-guest-shutdown.target
+After=virt-guest-shutdown.target
+Conflicts=vm-boot-order.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /usr/local/sbin/vm-boot-order-2.py start
+ExecStop=/usr/bin/python3 /usr/local/sbin/vm-boot-order-2.py stop --stop-all
+# Starting waits after each VM, up to the times in the config.
+TimeoutStartSec=infinity
+# Must be larger than the worst case shutdown time
+#   ceil(number of VMs / max_parallel_shutdowns) * shutdown_timeout
+# e.g. 15 VMs, 5 in parallel, 180 s: 3 * 180 s = 540 s
+TimeoutStopSec=600
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target
