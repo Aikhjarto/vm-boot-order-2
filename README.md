@@ -67,6 +67,7 @@ are still processed), and 2 for an invalid config.
 disk = nvme0n1
 shutdown_timeout = 180
 max_parallel_shutdowns = 5
+shutdown_last = Debian_syslog
 
 [start_order]
 Debian_syslog = 90
@@ -90,25 +91,30 @@ it, the VMs are stopped in reverse start order.
 | `shutdown_timeout` | `180` | Seconds until a VM that hasn't shut down is destroyed |
 | `shutdown_retry_interval` | `30` | Seconds between repeated shutdown requests to the same VM |
 | `max_parallel_shutdowns` | `5` | Number of VMs shut down at the same time |
+| `shutdown_last` | *(empty)* | VMs that are shut down only after all other VMs have stopped, separated by spaces or commas |
 
 Unknown sections and settings are reported as errors, so typos don't go
 unnoticed.
 
 ### Shutdown timing
 
+Because several VMs are shut down at the same time, the last VMs in the stop
+order overlap. Put VMs that others depend on (e.g. a syslog or DNS server) in
+`shutdown_last`. The shutdown then runs in two phases: first all other VMs,
+then, once every one of them has stopped or been destroyed, the
+`shutdown_last` VMs in the order given. A `shutdown_last` VM is only stopped
+if it's in the stop order, or running when `--stop-all` is used.
+
 The shutdown takes at most
 
-    ceil(number of VMs / max_parallel_shutdowns) * shutdown_timeout
+    (ceil(other VMs / max_parallel_shutdowns)
+     + ceil(shutdown_last VMs / max_parallel_shutdowns)) * shutdown_timeout
 
 seconds. `TimeoutStopSec=` in the service must be larger than that, otherwise
-systemd kills the script while VMs are still running. The service sets 600 s,
-which fits 15 VMs with the defaults (3 * 180 s = 540 s). Adjust it when you add
-VMs or change the settings; `stop` logs the worst case when it starts.
-
-Because several VMs are shut down at the same time, the last VMs in the stop
-order overlap. A VM that others depend on (e.g. a syslog or DNS server) is
-only guaranteed to be stopped after them if more than `max_parallel_shutdowns`
-VMs come before it in the stop order.
+systemd kills the script while VMs are still running. The service sets 900 s,
+which fits 15 VMs with one of them in `shutdown_last` and the defaults
+((3 + 1) * 180 s = 720 s). Adjust it when you add VMs or change the settings;
+`stop` logs the worst case when it starts.
 
 ## systemd
 

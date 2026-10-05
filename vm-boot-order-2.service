@@ -16,9 +16,11 @@ ExecStop=/usr/bin/python3 /usr/local/sbin/vm-boot-order-2.py stop --stop-all
 # Starting waits after each VM, up to the times in the config.
 TimeoutStartSec=infinity
 # Must be larger than the worst case shutdown time
-#   ceil(number of VMs / max_parallel_shutdowns) * shutdown_timeout
-# e.g. 15 VMs, 5 in parallel, 180 s: 3 * 180 s = 540 s
-TimeoutStopSec=600
+#   (ceil(other VMs / max_parallel_shutdowns)
+#    + ceil(shutdown_last VMs / max_parallel_shutdowns)) * shutdown_timeout
+# e.g. 15 VMs, one of them in shutdown_last, 5 in parallel, 180 s:
+#   (3 + 1) * 180 s = 720 s
+TimeoutStopSec=900
 StandardOutput=journal+console
 
 [Install]

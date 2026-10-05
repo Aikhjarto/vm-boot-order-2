@@ -40,6 +40,8 @@ class Config:
     shutdown_timeout: float = 180.0
     shutdown_retry_interval: float = 30.0
     max_parallel_shutdowns: int = 5
+    # VMs that are shut down only after all others have stopped
+    shutdown_last: list = field(default_factory=list)
     start_order: list = field(default_factory=list)  # [(name, max_wait)]
     stop_order: list = field(default_factory=list)   # [name]
 
@@ -63,7 +65,10 @@ def load_config(path):
             if key in ('start_order', 'stop_order') or not hasattr(cfg, key):
                 raise ValueError('unknown setting: {}'.format(key))
             default = getattr(cfg, key)
-            if isinstance(default, int):
+            if isinstance(default, list):
+                # VM names separated by whitespace or commas
+                setattr(cfg, key, settings.get(key, '').replace(',', ' ').split())
+            elif isinstance(default, int):
                 setattr(cfg, key, settings.getint(key))
             elif isinstance(default, float):
                 setattr(cfg, key, settings.getfloat(key))
@@ -239,13 +244,26 @@ def stop_vms(conn, cfg, stop_all=False):
             log.info('Also stopping VMs that are not in the config: %s', ', '.join(extra))
         names = extra + names
 
+    last = [name for name in cfg.shutdown_last if name in names]
+    first = [name for name in names if name not in last]
     workers = cfg.max_parallel_shutdowns
     log.info('Stopping %d VMs, up to %d in parallel (worst case %.0fs)', len(names), workers,
-             math.ceil(len(names) / workers) * cfg.shutdown_timeout)
-    ok = True
+             worst_case_stop_time(cfg, len(first), len(last)))
     uri = conn.getURI()
+    ok = stop_parallel(uri, first, cfg)
+    if last:
+        log.info('All other VMs are stopped, now stopping: %s', ', '.join(last))
+        ok = stop_parallel(uri, last, cfg) and ok
+
+    log.info('All VMs have been stopped' if ok else 'Finished stopping VMs, some failed')
+    return ok
+
+
+def stop_parallel(uri, names, cfg):
+    """Stop the VMs in names, up to cfg.max_parallel_shutdowns at a time."""
+    ok = True
     # the executor starts submitted jobs in order, so the stop order is kept
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    with ThreadPoolExecutor(max_workers=cfg.max_parallel_shutdowns) as pool:
         futures = {pool.submit(stop_vm, uri, name, cfg): name for name in names}
         for future in as_completed(futures):
             try:
@@ -253,9 +271,12 @@ def stop_vms(conn, cfg, stop_all=False):
             except libvirt.libvirtError as e:
                 log.error("Stopping VM '%s' failed: %s", futures[future], e)
                 ok = False
-
-    log.info('All VMs have been stopped' if ok else 'Finished stopping VMs, some failed')
     return ok
+
+
+def worst_case_stop_time(cfg, n_first, n_last):
+    workers = cfg.max_parallel_shutdowns
+    return (math.ceil(n_first / workers) + math.ceil(n_last / workers)) * cfg.shutdown_timeout
 
 
 # ----------------------------------------------------------------------
@@ -272,6 +293,8 @@ def show_status(conn, cfg):
             ok = False
         else:
             state = 'running' if dom.isActive() else 'shut off'
+        if name in cfg.shutdown_last:
+            state += ' (shutdown last)'
         print('  {:2}. {:30} {:>5g}s  {}'.format(i, name, max_wait, state))
 
     others = sorted(set(domains) - set(configured))
@@ -280,6 +303,11 @@ def show_status(conn, cfg):
         for name in others:
             print('      {:30}         {}'.format(
                 name, 'running' if domains[name].isActive() else 'shut off'))
+
+    undefined = [name for name in cfg.shutdown_last if name not in domains]
+    if undefined:
+        print('shutdown_last lists undefined VMs: {}'.format(', '.join(undefined)))
+        ok = False
     return ok
 
 
