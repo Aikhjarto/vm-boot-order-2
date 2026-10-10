@@ -165,6 +165,24 @@ Changes compared to `vm-boot-order.py`:
 - The old default timeouts could exceed the unit's `TimeoutStopSec=360`, so
   systemd killed the script during long shutdowns.
 
+## Bash completion
+
+`completions/vm-boot-order-2.py` completes the commands, the options and the
+config file. The packages install it; otherwise copy it to bash-completion's
+directory:
+
+```sh
+install -D -m 0644 completions/vm-boot-order-2.py /usr/share/bash-completion/completions/vm-boot-order-2.py
+```
+
+## Tests
+
+```sh
+python3 -m unittest -v
+```
+
+The tests need neither libvirt nor its Python bindings.
+
 ## License
 
 GPL-2.0-or-later. See [LICENSE](LICENSE).
